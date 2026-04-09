@@ -253,7 +253,7 @@ vol_info = ind_status.get("volume", {})
 
 with col1:
     rsi_val = rsi_info.get("value", float("nan"))
-    rsi_display = f"{rsi_val:.1f}" if rsi_val == rsi_val else "N/A"  # nan check
+    rsi_display = f"{rsi_val:.1f}" if pd.notna(rsi_val) else "N/A"
     st.metric(
         label=f"RSI (14) {_pass_icon(rsi_info.get('pass', False))}",
         value=rsi_display,

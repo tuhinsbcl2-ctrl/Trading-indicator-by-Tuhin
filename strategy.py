@@ -23,9 +23,10 @@ def generate_signal(df: pd.DataFrame) -> dict:
     Otherwise: HOLD
 
     Confidence:
-        High   → all four indicator checks (rsi, ma, macd, volume) align
-        Medium → signal conditions met but volume doesn't confirm
-        Low    → indicators are conflicting / not enough data
+        High   → the three signal conditions (rsi, ma, macd) are met AND volume
+                  confirms (above average)
+        Medium → the three signal conditions are met but volume doesn't confirm
+        Low    → indicators are conflicting or insufficient data
 
     Parameters
     ----------
