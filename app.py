@@ -70,6 +70,14 @@ INTERVAL_OPTIONS = {
     "1 Week (1wk)": "1wk",
 }
 
+# Max period supported by yfinance for each interval
+INTERVAL_PERIODS = {
+    "15m": "60d",
+    "1h": "60d",
+    "1d": "1y",
+    "1wk": "5y",
+}
+
 with st.sidebar:
     st.title("📊 NSE Dashboard")
     st.markdown("---")
@@ -198,23 +206,22 @@ if not ticker:
     st.error("Please enter a valid ticker symbol.")
     st.stop()
 
-# Validate RSI parameter ordering
+# Collect and display all parameter validation errors at once
+validation_errors = []
 if oversold_min >= oversold_max:
-    st.error("RSI Oversold Min must be less than RSI Oversold Max.")
-    st.stop()
-
+    validation_errors.append("RSI Oversold Min must be less than RSI Oversold Max.")
 if oversold_max >= overbought:
-    st.error("RSI Oversold Max must be less than RSI Overbought.")
-    st.stop()
-
+    validation_errors.append("RSI Oversold Max must be less than RSI Overbought.")
 if fast_ma >= slow_ma:
-    st.error("Fast MA Period must be less than Slow MA Period.")
+    validation_errors.append("Fast MA Period must be less than Slow MA Period.")
+if validation_errors:
+    for msg in validation_errors:
+        st.error(msg)
     st.stop()
 
 # ── Data Fetch ────────────────────────────────────────────────────────────────
 
-# For intraday intervals yfinance limits history to ~60 days
-period = "60d" if interval in ("15m", "1h") else "1y"
+period = INTERVAL_PERIODS.get(interval, "1y")
 
 with st.spinner(f"Fetching data for **{ticker}**…"):
     try:
