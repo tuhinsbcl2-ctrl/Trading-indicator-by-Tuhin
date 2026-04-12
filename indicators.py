@@ -28,15 +28,21 @@ def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     return df
 
 
-def calculate_moving_averages(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_moving_averages(df: pd.DataFrame,
+                             fast_ma: int = 20,
+                             slow_ma: int = 50) -> pd.DataFrame:
     """
-    Calculate 20, 50, and 200 period Simple Moving Averages.
+    Calculate fast, slow, and 200 period Simple Moving Averages.
 
-    Adds columns: MA20, MA50, MA200
+    The fast and slow periods are configurable; their results are stored in
+    columns named ``MA_FAST`` and ``MA_SLOW`` respectively so downstream code
+    always uses consistent column names regardless of the chosen periods.
+
+    Adds columns: MA_FAST, MA_SLOW, MA200
     """
     df = df.copy()
-    df["MA20"] = df["Close"].rolling(window=20).mean()
-    df["MA50"] = df["Close"].rolling(window=50).mean()
+    df["MA_FAST"] = df["Close"].rolling(window=fast_ma).mean()
+    df["MA_SLOW"] = df["Close"].rolling(window=slow_ma).mean()
     df["MA200"] = df["Close"].rolling(window=200).mean()
     return df
 
@@ -89,15 +95,26 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     return df
 
 
-def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+def add_all_indicators(df: pd.DataFrame,
+                       fast_ma: int = 20,
+                       slow_ma: int = 50) -> pd.DataFrame:
     """
     Master function — applies all indicators in sequence.
 
-    Adds columns: RSI, MA20, MA50, MA200, MACD, MACD_Signal, MACD_Hist,
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Raw OHLCV DataFrame.
+    fast_ma : int
+        Period for the fast moving average (default: 20).
+    slow_ma : int
+        Period for the slow moving average (default: 50).
+
+    Adds columns: RSI, MA_FAST, MA_SLOW, MA200, MACD, MACD_Signal, MACD_Hist,
                   Vol_Avg, ATR
     """
     df = calculate_rsi(df)
-    df = calculate_moving_averages(df)
+    df = calculate_moving_averages(df, fast_ma=fast_ma, slow_ma=slow_ma)
     df = calculate_macd(df)
     df = calculate_volume_avg(df)
     df = calculate_atr(df)

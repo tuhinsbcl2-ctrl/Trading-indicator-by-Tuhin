@@ -6,18 +6,23 @@ Generates BUY / SELL / HOLD signals based on technical indicator conditions.
 import pandas as pd
 
 
-def generate_signal(df: pd.DataFrame) -> dict:
+def generate_signal(df: pd.DataFrame,
+                    oversold_min: int = 30,
+                    oversold_max: int = 40,
+                    overbought: int = 60,
+                    fast_ma: int = 20,
+                    slow_ma: int = 50) -> dict:
     """
     Analyse the latest candle and generate a trading signal.
 
     BUY conditions (ALL must hold):
-        - RSI between 30 and 40
-        - Close price above MA50
+        - RSI between oversold_min and oversold_max
+        - Close price above MA_SLOW (slow moving average)
         - MACD Histogram > 0 (bullish momentum)
 
     SELL conditions (ALL must hold):
-        - RSI above 60
-        - Close price below MA20
+        - RSI above overbought
+        - Close price below MA_FAST (fast moving average)
         - MACD Histogram < 0 (bearish momentum)
 
     Otherwise: HOLD
@@ -32,6 +37,16 @@ def generate_signal(df: pd.DataFrame) -> dict:
     ----------
     df : pd.DataFrame
         DataFrame with all indicators already added.
+    oversold_min : int
+        Lower bound of the RSI oversold zone (default: 30).
+    oversold_max : int
+        Upper bound of the RSI oversold zone (default: 40).
+    overbought : int
+        RSI threshold for overbought territory (default: 60).
+    fast_ma : int
+        Period of the fast moving average; used only for display (default: 20).
+    slow_ma : int
+        Period of the slow moving average; used only for display (default: 50).
 
     Returns
     -------
@@ -39,7 +54,7 @@ def generate_signal(df: pd.DataFrame) -> dict:
         Signal dictionary with keys: signal, confidence, reasons,
         indicator_status.
     """
-    required = ["Close", "RSI", "MA20", "MA50", "MACD_Hist", "Volume", "Vol_Avg"]
+    required = ["Close", "RSI", "MA_FAST", "MA_SLOW", "MACD_Hist", "Volume", "Vol_Avg"]
     if df is None or df.empty or not all(c in df.columns for c in required):
         return _hold_signal("Insufficient data for analysis.")
 
@@ -49,36 +64,36 @@ def generate_signal(df: pd.DataFrame) -> dict:
 
     rsi = latest["RSI"]
     close = latest["Close"]
-    ma20 = latest["MA20"]
-    ma50 = latest["MA50"]
+    ma_fast = latest["MA_FAST"]
+    ma_slow = latest["MA_SLOW"]
     macd_hist = latest["MACD_Hist"]
     prev_macd_hist = prev["MACD_Hist"]
     volume = latest["Volume"]
     vol_avg = latest["Vol_Avg"]
 
     # Guard against NaN values in key indicators
-    if any(pd.isna(v) for v in [rsi, close, ma20, ma50, macd_hist, vol_avg]):
+    if any(pd.isna(v) for v in [rsi, close, ma_fast, ma_slow, macd_hist, vol_avg]):
         return _hold_signal("Indicator values not yet available (insufficient history).")
 
     # ── Individual indicator statuses ────────────────────────────────────────
     # RSI
-    if 30 <= rsi <= 40:
+    if oversold_min <= rsi <= oversold_max:
         rsi_status, rsi_pass = "bullish", True
-    elif rsi > 60:
+    elif rsi > overbought:
         rsi_status, rsi_pass = "bearish", True
     else:
         rsi_status, rsi_pass = "neutral", False
 
     # Price vs MA
-    if close > ma50:
+    if close > ma_slow:
         ma_status, ma_pass = "bullish", True
-        ma_desc = f"Close ({close:.2f}) > MA50 ({ma50:.2f})"
-    elif close < ma20:
+        ma_desc = f"Close ({close:.2f}) > MA{slow_ma} ({ma_slow:.2f})"
+    elif close < ma_fast:
         ma_status, ma_pass = "bearish", True
-        ma_desc = f"Close ({close:.2f}) < MA20 ({ma20:.2f})"
+        ma_desc = f"Close ({close:.2f}) < MA{fast_ma} ({ma_fast:.2f})"
     else:
         ma_status, ma_pass = "neutral", False
-        ma_desc = f"Close ({close:.2f}) between MA20 and MA50"
+        ma_desc = f"Close ({close:.2f}) between MA{fast_ma} and MA{slow_ma}"
 
     # MACD
     if macd_hist > 0:
@@ -125,15 +140,15 @@ def generate_signal(df: pd.DataFrame) -> dict:
     }
 
     # ── Signal determination ─────────────────────────────────────────────────
-    buy_cond = (30 <= rsi <= 40) and (close > ma50) and (macd_hist > 0)
-    sell_cond = (rsi > 60) and (close < ma20) and (macd_hist < 0)
+    buy_cond = (oversold_min <= rsi <= oversold_max) and (close > ma_slow) and (macd_hist > 0)
+    sell_cond = (rsi > overbought) and (close < ma_fast) and (macd_hist < 0)
 
     reasons = []
 
     if buy_cond:
         signal = "BUY"
-        reasons.append(f"RSI ({rsi:.1f}) is in oversold-recovery zone (30–40)")
-        reasons.append(f"Price is above MA50 — bullish trend")
+        reasons.append(f"RSI ({rsi:.1f}) is in oversold-recovery zone ({oversold_min}–{oversold_max})")
+        reasons.append(f"Price is above MA{slow_ma} — bullish trend")
         reasons.append(f"MACD histogram is positive — bullish momentum")
         if vol_pass:
             reasons.append("Volume confirms the move (above average)")
@@ -144,8 +159,8 @@ def generate_signal(df: pd.DataFrame) -> dict:
 
     elif sell_cond:
         signal = "SELL"
-        reasons.append(f"RSI ({rsi:.1f}) is in overbought territory (> 60)")
-        reasons.append(f"Price is below MA20 — short-term bearish")
+        reasons.append(f"RSI ({rsi:.1f}) is in overbought territory (> {overbought})")
+        reasons.append(f"Price is below MA{fast_ma} — short-term bearish")
         reasons.append(f"MACD histogram is negative — bearish momentum")
         if vol_pass:
             reasons.append("Volume confirms the sell pressure (above average)")
@@ -157,8 +172,8 @@ def generate_signal(df: pd.DataFrame) -> dict:
     else:
         signal = "HOLD"
         # Determine confidence based on how many conditions are met
-        bull_score = sum([30 <= rsi <= 40, close > ma50, macd_hist > 0])
-        bear_score = sum([rsi > 60, close < ma20, macd_hist < 0])
+        bull_score = sum([oversold_min <= rsi <= oversold_max, close > ma_slow, macd_hist > 0])
+        bear_score = sum([rsi > overbought, close < ma_fast, macd_hist < 0])
 
         if bull_score == 2 or bear_score == 2:
             confidence = "Medium"
@@ -167,7 +182,7 @@ def generate_signal(df: pd.DataFrame) -> dict:
             confidence = "Low"
             reasons.append("Indicators are mixed — no clear directional signal")
 
-        reasons.append(f"RSI at {rsi:.1f} (neutral zone or not in 30–40/60+ range)")
+        reasons.append(f"RSI at {rsi:.1f} (neutral zone or not in {oversold_min}–{oversold_max}/{overbought}+ range)")
 
     return {
         "signal": signal,
