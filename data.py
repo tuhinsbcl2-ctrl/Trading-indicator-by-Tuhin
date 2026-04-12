@@ -3,11 +3,13 @@ data.py — Data Fetching Module
 Fetches OHLCV stock data from Yahoo Finance for NSE stocks.
 """
 
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 
 
-def fetch_stock_data(ticker: str, period: str = "1y") -> pd.DataFrame:
+@st.cache_data(ttl=3600)
+def fetch_stock_data(ticker: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     """
     Fetch historical OHLCV data for a given NSE stock ticker.
 
@@ -17,6 +19,8 @@ def fetch_stock_data(ticker: str, period: str = "1y") -> pd.DataFrame:
         NSE stock ticker symbol (e.g., 'RELIANCE.NS').
     period : str
         Data period to fetch (default: '1y' for 1 year).
+    interval : str
+        Data interval (e.g., '1d', '1wk', '1h', '15m'). Default: '1d'.
 
     Returns
     -------
@@ -29,7 +33,7 @@ def fetch_stock_data(ticker: str, period: str = "1y") -> pd.DataFrame:
             raise ValueError("Ticker must be a non-empty string.")
 
         stock = yf.Ticker(ticker.strip())
-        df = stock.history(period=period)
+        df = stock.history(period=period, interval=interval)
 
         if df is None or df.empty:
             raise ValueError(f"No data returned for ticker '{ticker}'. "

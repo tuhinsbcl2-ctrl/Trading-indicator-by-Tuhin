@@ -4,6 +4,7 @@ Main entry point: streamlit run app.py
 """
 
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -54,16 +55,55 @@ st.markdown(
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
+NIFTY50_TICKERS = [
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
+    "HINDUNILVR.NS", "KOTAKBANK.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS",
+    "BAJFINANCE.NS", "ASIANPAINT.NS", "LT.NS", "AXISBANK.NS", "TITAN.NS",
+    "WIPRO.NS", "HCLTECH.NS", "MARUTI.NS", "NESTLEIND.NS", "ULTRACEMCO.NS",
+    "Custom",
+]
+
+INTERVAL_OPTIONS = {
+    "15 Minutes (15m)": "15m",
+    "1 Hour (1h)": "1h",
+    "1 Day (1d)": "1d",
+    "1 Week (1wk)": "1wk",
+}
+
 with st.sidebar:
     st.title("📊 NSE Dashboard")
     st.markdown("---")
 
-    ticker = st.text_input(
+    # ── Ticker Selection ──────────────────────────────────────────────────────
+    selected_ticker = st.selectbox(
         "🔤 Stock Ticker",
-        value="RELIANCE.NS",
-        help="Enter NSE ticker symbol, e.g. RELIANCE.NS, TCS.NS, INFY.NS",
-    ).strip().upper()
+        options=NIFTY50_TICKERS,
+        index=0,
+        help="Select a popular Nifty 50 stock or choose 'Custom' to enter any ticker.",
+    )
 
+    if selected_ticker == "Custom":
+        ticker = st.text_input(
+            "Enter custom ticker",
+            value="",
+            placeholder="e.g. TATAMOTORS.NS",
+            help="Enter any Yahoo Finance ticker symbol.",
+        ).strip().upper()
+    else:
+        ticker = selected_ticker
+
+    # ── Interval Selection ────────────────────────────────────────────────────
+    interval_label = st.selectbox(
+        "⏱️ Data Interval",
+        options=list(INTERVAL_OPTIONS.keys()),
+        index=2,
+        help="Select the candle interval. Note: intraday intervals (15m, 1h) only support up to 60 days of history.",
+    )
+    interval = INTERVAL_OPTIONS[interval_label]
+
+    st.markdown("---")
+
+    # ── Capital & Risk ────────────────────────────────────────────────────────
     capital = st.number_input(
         "💰 Capital (₹)",
         min_value=10_000,
@@ -81,6 +121,59 @@ with st.sidebar:
         step=0.5,
         help="Percentage of capital you are willing to risk per trade",
     )
+
+    st.markdown("---")
+
+    # ── Indicator Parameters ──────────────────────────────────────────────────
+    st.markdown("### 📐 Indicator Parameters")
+
+    fast_ma = st.number_input(
+        "Fast MA Period",
+        min_value=2,
+        max_value=100,
+        value=20,
+        step=1,
+        help="Period for the fast Simple Moving Average (default: 20)",
+    )
+
+    slow_ma = st.number_input(
+        "Slow MA Period",
+        min_value=2,
+        max_value=300,
+        value=50,
+        step=1,
+        help="Period for the slow Simple Moving Average (default: 50)",
+    )
+
+    st.markdown("**RSI Oversold Zone**")
+    oversold_min = st.number_input(
+        "RSI Oversold Min",
+        min_value=1,
+        max_value=49,
+        value=30,
+        step=1,
+        help="Lower bound of the RSI oversold recovery zone (default: 30)",
+    )
+
+    oversold_max = st.number_input(
+        "RSI Oversold Max",
+        min_value=2,
+        max_value=50,
+        value=40,
+        step=1,
+        help="Upper bound of the RSI oversold recovery zone (default: 40)",
+    )
+
+    overbought = st.number_input(
+        "RSI Overbought",
+        min_value=51,
+        max_value=99,
+        value=60,
+        step=1,
+        help="RSI threshold for the overbought / sell zone (default: 60)",
+    )
+
+    st.markdown("---")
 
     analyze_btn = st.button("🔍 Analyze Stock", use_container_width=True)
 
@@ -101,22 +194,49 @@ if not analyze_btn:
     )
     st.stop()
 
+if not ticker:
+    st.error("Please enter a valid ticker symbol.")
+    st.stop()
+
+# Validate RSI parameter ordering
+if oversold_min >= oversold_max:
+    st.error("RSI Oversold Min must be less than RSI Oversold Max.")
+    st.stop()
+
+if oversold_max >= overbought:
+    st.error("RSI Oversold Max must be less than RSI Overbought.")
+    st.stop()
+
+if fast_ma >= slow_ma:
+    st.error("Fast MA Period must be less than Slow MA Period.")
+    st.stop()
+
 # ── Data Fetch ────────────────────────────────────────────────────────────────
+
+# For intraday intervals yfinance limits history to ~60 days
+period = "60d" if interval in ("15m", "1h") else "1y"
 
 with st.spinner(f"Fetching data for **{ticker}**…"):
     try:
-        df_raw = fetch_stock_data(ticker)
+        df_raw = fetch_stock_data(ticker, period=period, interval=interval)
     except RuntimeError as err:
         st.error(str(err))
         st.stop()
 
 # ── Indicators ────────────────────────────────────────────────────────────────
 
-df = add_all_indicators(df_raw)
+df = add_all_indicators(df_raw, fast_ma=fast_ma, slow_ma=slow_ma)
 
 # ── Signal Generation ─────────────────────────────────────────────────────────
 
-signal_data = generate_signal(df)
+signal_data = generate_signal(
+    df,
+    oversold_min=oversold_min,
+    oversold_max=oversold_max,
+    overbought=overbought,
+    fast_ma=fast_ma,
+    slow_ma=slow_ma,
+)
 signal = signal_data["signal"]
 confidence = signal_data["confidence"]
 reasons = signal_data["reasons"]
@@ -262,7 +382,7 @@ with col1:
 
 with col2:
     st.metric(
-        label=f"Price vs MA50 {_pass_icon(ma_info.get('pass', False))}",
+        label=f"Price vs MA{slow_ma} {_pass_icon(ma_info.get('pass', False))}",
         value=ma_info.get("status", "N/A").capitalize(),
         delta=None,
     )
@@ -317,26 +437,26 @@ fig.add_trace(
     col=1,
 )
 
-# MA20
-if "MA20" in df.columns:
+# Fast MA
+if "MA_FAST" in df.columns:
     fig.add_trace(
         go.Scatter(
             x=df.index,
-            y=df["MA20"],
-            name="MA20",
+            y=df["MA_FAST"],
+            name=f"MA{fast_ma} (Fast)",
             line={"color": "#1f77b4", "width": 1.5},
         ),
         row=1,
         col=1,
     )
 
-# MA50
-if "MA50" in df.columns:
+# Slow MA
+if "MA_SLOW" in df.columns:
     fig.add_trace(
         go.Scatter(
             x=df.index,
-            y=df["MA50"],
-            name="MA50",
+            y=df["MA_SLOW"],
+            name=f"MA{slow_ma} (Slow)",
             line={"color": "#ff7f0e", "width": 1.5},
         ),
         row=1,
@@ -378,10 +498,9 @@ fig.update_layout(
     xaxis_rangeslider_visible=False,
     legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
     margin={"t": 40, "b": 20},
-    template="plotly_dark",
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.markdown("---")
 
